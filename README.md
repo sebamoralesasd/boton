@@ -1,4 +1,4 @@
-# Macro Email Transaction Parser
+# Boton
 
 Programa Ruby que lee emails de transacciones de Banco Macro desde Gmail, extrae información relevante (monto, comercio, fecha, hora) y la almacena en una base de datos SQLite3.
 
@@ -78,32 +78,7 @@ ls -la config/credentials.json
 
 ## Uso
 
-### Procesar Emails del Día Actual
-
-```bash
-boton
-```
-
-### Procesar Emails de una Fecha Específica
-
-```bash
-boton 2026-01-03
-```
-
-El formato de fecha debe ser: `YYYY-MM-DD`
-
-### Consultar sin Conectarse a Gmail (`--local`)
-
-Con `--local`, los comandos de sincronización no consultan la Gmail API: sólo
-muestran lo que ya está registrado en la base local, dentro del resumen abierto.
-
-```bash
-boton --local                    # transacciones de hoy
-boton 2026-01-03 --local         # transacciones de esa fecha
-boton desde 2026-01-01 --local   # transacciones desde esa fecha hasta hoy
-```
-
-`reversos` no admite `--local`, ya que necesita leer los emails de Gmail.
+Ver [AGENTS.md](AGENTS.md) para la lista completa de comandos y variables de entorno.
 
 ### Primera Ejecución
 
@@ -113,32 +88,6 @@ En la primera ejecución, el programa abrirá tu navegador para autorizar el acc
 2. Click "Advanced" → "Go to Macro Transaction Parser (unsafe)"
 3. Click "Allow"
 4. El token se guardará en `config/token.yaml` para futuras ejecuciones
-
-## Estructura del Proyecto
-
-```
-boton/
-├── bin/
-│   └── boton                     # Entry point del CLI
-├── config/
-│   ├── credentials.json          # Credenciales de Google Cloud (descargadas)
-│   └── token.yaml                # Token OAuth2 (generado automáticamente)
-├── data/
-│   └── transactions.db           # Base de datos SQLite3 (generado automáticamente)
-├── lib/
-│   ├── boton.rb                  # Entry point de la librería (requires + module Boton)
-│   └── boton/
-│       ├── cli.rb                # Setup de logger, manejo de errores y exit codes
-│       ├── application.rb        # Orquesta el comando parseado
-│       ├── command_parser.rb     # Parsea ARGV a una acción
-│       ├── gmail_client.rb       # Cliente OAuth2 para Gmail API
-│       ├── email_parser.rb       # Parser de HTML de emails
-│       ├── database.rb           # Capa de persistencia SQLite3
-│       └── transaction.rb        # Modelo de datos con validaciones
-├── Gemfile                       # Dependencias Ruby
-├── .gitignore                    # Archivos ignorados por Git
-└── README.md                     # Este archivo
-```
 
 ## Consultar la Base de Datos
 
