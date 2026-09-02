@@ -1,0 +1,23 @@
+# Credenciales OAuth2
+config/credentials.json
+config/token.yaml
+
+# Base de datos
+data/*.db
+data/*.db-journal
+data/*.sqlite3
+
+# Ruby/Bundle
+*.gem
+.bundle/
+vendor/bundle/
+Gemfile.lock
+
+# Mise
+.mise.toml.local
+
+# Sistema
+.DS_Store
+
+# Ejemplos de emails (contienen información personal)
+*.eml
