@@ -59,7 +59,7 @@ vía `GmailClient` + `EmailParser`) o a `ListService` (consulta la `Database` y 
 - `help_presenter.rb` imprime el texto de ayuda (`boton help`)
 - Los "resúmenes" agrupan transacciones por período; sólo puede haber uno abierto
   (`periodo_fin IS NULL`) a la vez, y `list`/`all` filtran distinto: `list` sólo mira el resumen
-  abierto, `all` mira todo el historial
+  que contiene la fecha de hoy (no necesariamente el abierto), `all` mira todo el historial
 
 ## Code style
 - Respetar separación de responsabilidades

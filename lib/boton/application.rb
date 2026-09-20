@@ -101,7 +101,7 @@ module Boton
       end
 
       @logger.info 'Modo --local: no se consulta Gmail'
-      summary = open_summary_or_exit
+      summary = current_summary_or_exit
 
       presenter = TransactionPresenter.new(logger: @logger)
       service = ListService.new(logger: @logger)
@@ -110,7 +110,7 @@ module Boton
     end
 
     def execute_list(search_term = nil, date = nil)
-      summary = open_summary_or_exit
+      summary = current_summary_or_exit
 
       presenter = TransactionPresenter.new(logger: @logger)
       service = ListService.new(logger: @logger)
@@ -125,12 +125,13 @@ module Boton
       service.execute(@db, presenter, search_term: search_term, show_all: true, date: date)
     end
 
-    # Obtener el resumen abierto o terminar con error
-    # @return [Hash] resumen abierto
-    def open_summary_or_exit
-      summary = @db.get_open_summary
+    # Obtener el resumen que contiene la fecha de hoy o terminar con error
+    # @return [Hash] resumen vigente
+    def current_summary_or_exit
+      today = Date.today.to_s
+      summary = @db.find_summary_by_dates(today)
       unless summary
-        @logger.error "No hay resumen abierto. Usa 'boton open YYYY-MM-DD' para crear uno."
+        @logger.error "No hay resumen para hoy (#{today}). Usa 'boton open YYYY-MM-DD' para crear uno."
         exit 1
       end
       summary
