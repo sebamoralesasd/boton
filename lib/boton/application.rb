@@ -41,9 +41,7 @@ module Boton
       when :help
         HelpPresenter.show
       when :error
-        @logger.error cmd[:message]
-        @logger.error "Usa 'boton help' para ver ayuda"
-        exit 1
+        raise UsageError, cmd[:message]
       end
     end
 
@@ -55,6 +53,7 @@ module Boton
       service = SyncService.new(logger: @logger)
 
       service.execute(date, @db, gmail, parser)
+      match_pending_reversals
     end
 
     def execute_range_action(cmd)
@@ -64,16 +63,9 @@ module Boton
     end
 
     def execute_sync_range(date_start, date_end)
-      # Validar que no sea fecha futura
-      if date_start > Date.today
-        @logger.error "No se puede procesar fechas futuras: #{date_start}"
-        exit 1
-      end
-
-      # Validar que fecha_inicio sea anterior a fecha_fin
+      raise UsageError, "No se puede procesar fechas futuras: #{date_start}" if date_start > Date.today
       if date_start > date_end
-        @logger.error "Fecha de inicio debe ser anterior a fecha de fin: #{date_start} > #{date_end}"
-        exit 1
+        raise UsageError, "Fecha de inicio debe ser anterior a fecha de fin: #{date_start} > #{date_end}"
       end
 
       gmail = GmailClient.new(logger: @logger)
@@ -85,6 +77,11 @@ module Boton
         service.execute(current_date, @db, gmail, parser)
         current_date += 1
       end
+      match_pending_reversals
+    end
+
+    def match_pending_reversals
+      ReversalService.new(logger: @logger).match_pending(@db)
     end
 
     # Modo --local: mostrar lo registrado en la base, sin consultar Gmail
@@ -96,8 +93,7 @@ module Boton
     # Modo --local para un rango de fechas
     def execute_local_range(date_start, date_end)
       if date_start > date_end
-        @logger.error "Fecha de inicio debe ser anterior a fecha de fin: #{date_start} > #{date_end}"
-        exit 1
+        raise UsageError, "Fecha de inicio debe ser anterior a fecha de fin: #{date_start} > #{date_end}"
       end
 
       @logger.info 'Modo --local: no se consulta Gmail'
@@ -130,10 +126,8 @@ module Boton
     def current_summary_or_exit
       today = Date.today.to_s
       summary = @db.find_summary_by_dates(today)
-      unless summary
-        @logger.error "No hay resumen para hoy (#{today}). Usa 'boton open YYYY-MM-DD' para crear uno."
-        exit 1
-      end
+      raise Error, "No hay resumen para hoy (#{today}). Usa 'boton open YYYY-MM-DD' para crear uno." unless summary
+
       summary
     end
 
@@ -148,18 +142,19 @@ module Boton
     def execute_open_summary(date)
       date_str = date.strftime('%Y-%m-%d')
 
-      # Buscar resumen abierto
-      open_summary = @db.get_open_summary
-      if open_summary
-        # Cerrar resumen anterior
-        @db.close_summary(open_summary['id'], date_str)
-        @logger.info "Summary cerrado: #{open_summary['periodo_inicio']} → #{date_str}"
+      conflict = @db.overlapping_summary(date_str)
+      if conflict
+        raise Error, "El resumen ##{conflict['id']} (#{conflict['periodo_inicio']} → " \
+                     "#{conflict['periodo_fin'] || '(abierto)'}) se superpone con #{date_str}"
       end
 
-      # Crear nuevo resumen
-      new_summary_id = @db.create_summary(date_str, nil)
+      result = @db.open_summary(date_str)
+      if result[:closed]
+        @logger.info "Summary cerrado: #{result[:closed]['periodo_inicio']} → #{date_str}"
+        @logger.info "Transacciones movidas al nuevo summary: #{result[:moved]}"
+      end
       @logger.info "Nuevo summary abierto: #{date_str}"
-      @logger.info "Summary ID: #{new_summary_id}"
+      @logger.info "Summary ID: #{result[:id]}"
     end
   end
 end

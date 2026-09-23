@@ -87,7 +87,9 @@ En la primera ejecución, el programa abrirá tu navegador para autorizar el acc
 1. Selecciona tu cuenta de Gmail
 2. Click "Advanced" → "Go to Macro Transaction Parser (unsafe)"
 3. Click "Allow"
-4. El token se guardará en `config/token.yaml` para futuras ejecuciones
+4. Google redirige a `http://127.0.0.1:<puerto>`, donde el programa recibe el código solo
+   (espera hasta 5 minutos). Si el navegador no se abre, la URL aparece en el log
+5. El token se guardará en `config/token.yaml` para futuras ejecuciones
 
 ## Consultar la Base de Datos
 
@@ -95,7 +97,7 @@ En la primera ejecución, el programa abrirá tu navegador para autorizar el acc
 # Abrir SQLite
 sqlite3 data/transactions.db
 
-# Ver todas las transacciones
+# Ver todas las transacciones (montos en centavos: amount_cents)
 SELECT * FROM transactions ORDER BY transaction_date DESC, transaction_time DESC;
 
 # Ver transacciones de una fecha
@@ -103,6 +105,9 @@ SELECT * FROM transactions WHERE transaction_date = '2026-01-03';
 
 # Contar transacciones
 SELECT COUNT(*) FROM transactions;
+
+# Reversos pendientes (sin compra original encontrada o ambiguos)
+SELECT * FROM reversals WHERE transaction_id IS NULL;
 
 # Salir
 .exit

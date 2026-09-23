@@ -41,10 +41,8 @@ module Boton
       when 'all'
         # Mostrar todas las transacciones
         if args[1]
-          # Intenta parsear como fecha YYYY-MM-DD
-          if args[1].match?(/^\d{4}-\d{2}-\d{2}$/)
-            date = Date.parse(args[1])
-            { action: :all, date: date, search_term: nil }
+          if date_argument?(args[1])
+            { action: :all, date: parse_date_or_keyword(args[1]), search_term: nil }
           else
             # Es una palabra clave de búsqueda
             { action: :all, search_term: args[1] }
@@ -72,8 +70,7 @@ module Boton
       when 'open'
         # Abrir nuevo resumen (cierra el anterior si existe)
         if args[1]
-          date = Date.parse(args[1])
-          { action: :open, date: date }
+          { action: :open, date: parse_date_or_keyword(args[1]) }
         else
           { action: :error, message: 'Especificar fecha: boton open YYYY-MM-DD' }
         end
@@ -83,18 +80,17 @@ module Boton
         if local
           { action: :error, message: "El comando 'reversos' requiere Gmail y no admite --local" }
         elsif args[1]
-          date = Date.parse(args[1])
-          { action: :reversos, date: date }
+          { action: :reversos, date: parse_date_or_keyword(args[1]) }
         else
           { action: :reversos, date: Date.today }
         end
 
       when /^\d{4}-\d{2}-\d{2}$/
         # Fecha directa: sync esa fecha
-        { action: :sync, date: Date.parse(command), local: local }
+        { action: :sync, date: parse_date_or_keyword(command), local: local }
 
       else
-        { action: :help }
+        { action: :error, message: "Comando desconocido: #{command}" }
       end
     rescue ArgumentError
       { action: :error, message: 'Formato de fecha inválido. Usar: YYYY-MM-DD' }
@@ -119,7 +115,9 @@ module Boton
       when 'hoy'
         Date.today
       else
-        Date.parse(input)
+        raise ArgumentError unless input.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+
+        Date.strptime(input, '%Y-%m-%d')
       end
     end
   end

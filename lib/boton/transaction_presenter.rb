@@ -37,15 +37,15 @@ module Boton
         puts format('%-12s %-8s $%12.2f  %-40s',
                     tx['transaction_date'],
                     tx['transaction_time'],
-                    tx['amount'],
+                    tx['amount_cents'] / 100.0,
                     tx['merchant'][0..39] # Truncate if too long
                    )
-        total += tx['amount']
+        total += tx['amount_cents']
       end
 
       # Footer
       puts '=' * 80
-      puts format('TOTAL: $%.2f (%d transacciones)', total, transactions.size)
+      puts format('TOTAL: $%.2f (%d transacciones)', total / 100.0, transactions.size)
       puts '=' * 80 + "\n"
     end
   end

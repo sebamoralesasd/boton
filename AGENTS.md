@@ -5,8 +5,9 @@ la cuenta de un ciclo de facturación.
 
 Los datos se obtienen leyendo emails de Gmail (OAuth2, sólo lectura) filtrados por remitente y
 asunto; cada email se parsea para extraer monto, comercio, fecha y hora, y se guarda evitando
-duplicados por Message-ID. Los reversos de compra se buscan por separado y anulan la transacción
-original a la que corresponden.
+duplicados por el id del mensaje de Gmail. Los reversos de compra se buscan por separado, se
+registran en la tabla `reversals` y anulan la transacción original cuando hay una única candidata
+(mismo comercio y monto). Los que quedan pendientes se reintentan en cada sync, sin consultar Gmail.
 
 ## Comandos
 
@@ -50,16 +51,22 @@ según la acción, delega a `SyncService` / `ReversalService` (sincronizan y com
 vía `GmailClient` + `EmailParser`) o a `ListService` (consulta la `Database` y delega la salida a
 `TransactionPresenter`).
 
-- `cli.rb` es el único lugar que rescata errores, decide el exit code y cierra la conexión a la DB
+- `cli.rb` es el único lugar que rescata errores, decide el exit code y cierra la conexión a la DB;
+  el resto lanza `Boton::Error` (o `Boton::UsageError` para errores de uso), definidos en `errors.rb`
 - `command_parser.rb` traduce ARGV a un hash `{action:, ...}`, sin ejecutar nada
 - `gmail_client.rb` maneja OAuth2 y la extracción de HTML de los mensajes de Gmail
 - `email_parser.rb` aplica los regex sobre el HTML y arma un `Transaction`
-- `database.rb` tiene la conexión, el schema y todas las queries (con bind params)
+- `database.rb` tiene la conexión, el schema y todas las queries (con bind params). El schema
+  evoluciona con migraciones numeradas (`MIGRATIONS`, versión en `PRAGMA user_version`); para
+  cambiarlo, agregar una migración al final de la lista, nunca editar una existente
+- Los montos se guardan y operan en centavos enteros (`amount_cents`); sólo se pasan a pesos al mostrarlos
 - `transaction_presenter.rb` imprime la tabla de transacciones; es de los pocos lugares con `puts`
 - `help_presenter.rb` imprime el texto de ayuda (`boton help`)
 - Los "resúmenes" agrupan transacciones por período; sólo puede haber uno abierto
-  (`periodo_fin IS NULL`) a la vez, y `list`/`all` filtran distinto: `list` sólo mira el resumen
-  que contiene la fecha de hoy (no necesariamente el abierto), `all` mira todo el historial
+  (`periodo_fin IS NULL`) a la vez. `open FECHA` rechaza fechas que se superpongan con un resumen
+  existente y mueve al nuevo las transacciones del anterior con fecha ≥ FECHA. `list`/`all` filtran
+  distinto: `list` sólo mira el resumen que contiene la fecha de hoy (no necesariamente el abierto),
+  `all` mira todo el historial
 
 ## Code style
 - Respetar separación de responsabilidades

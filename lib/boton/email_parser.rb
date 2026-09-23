@@ -58,7 +58,8 @@ module Boton
     # @return [String] texto decodificado
     def decode_quoted_printable(text)
       # Forzar encoding a ASCII-8BIT para trabajar con bytes
-      text = text.dup.force_encoding('ASCII-8BIT') if text.encoding != Encoding::ASCII_8BIT
+      text = text.dup.force_encoding('ASCII-8BIT')
+      return text.force_encoding('UTF-8').scrub('?') unless text.include?('=3D')
 
       # Decodificar =3D → =, etc.
       text = text.gsub(/=([0-9A-F]{2})/i) { [::Regexp.last_match(1).hex].pack('C') }

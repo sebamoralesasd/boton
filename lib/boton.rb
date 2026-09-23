@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'boton/errors'
 require_relative 'boton/transaction'
 require_relative 'boton/database'
 require_relative 'boton/email_parser'

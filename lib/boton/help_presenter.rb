@@ -42,7 +42,7 @@ module Boton
         #{BOLD}FORMATO DE FECHA:#{RESET}
           #{GREEN}YYYY-MM-DD#{RESET} #{GRAY}(ejemplo: 2026-01-09)#{RESET}
           #{YELLOW}ayer#{RESET}          #{GRAY}(palabra clave para el día anterior)#{RESET}
-          #{YELLOW}hoy#{RESET}           #{GRAY}(palabra clave para el día actual, sólo en 'list')#{RESET}
+          #{YELLOW}hoy#{RESET}           #{GRAY}(palabra clave para el día actual)#{RESET}
 
         #{BOLD}EJEMPLOS:#{RESET}
            #{GREEN}boton#{RESET}                    #{GRAY}# Sincronizar hoy#{RESET}

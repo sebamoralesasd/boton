@@ -25,12 +25,8 @@ module Boton
     end
 
     def format_amount
-      @params[:amount] = amount
-                         .gsub('$', '') # Quitar símbolo de peso
-                         .strip               # Quitar espacios
-                         .gsub('.', '')       # Quitar separador de miles
-                         .gsub(',', '.')      # Convertir coma decimal a punto
-                         .to_f                # Convertir a float
+      whole, decimals = amount.delete('$').strip.delete('.').split(',')
+      @params[:amount_cents] = (Integer(whole, 10) * 100) + Integer((decimals || '0').ljust(2, '0')[0, 2], 10)
     end
 
     def format_date
@@ -50,6 +46,10 @@ module Boton
 
     def amount
       @params[:amount]
+    end
+
+    def amount_cents
+      @params[:amount_cents]
     end
 
     def merchant

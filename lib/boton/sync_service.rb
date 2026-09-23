@@ -69,7 +69,8 @@ module Boton
 
         # Insert into database
         if db.insert_transaction(transaction)
-          log_info "Transaccion insertada: $#{transaction.amount} en #{transaction.merchant}"
+          amount = format('$%.2f', transaction.amount_cents / 100.0)
+          log_info "Transaccion insertada: #{amount} en #{transaction.merchant}"
           stats[:inserted] += 1
         else
           log_error 'Error insertando transaccion (duplicado inesperado)'

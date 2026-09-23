@@ -5,11 +5,13 @@ require 'sqlite3'
 module Boton
   class Database
     DEFAULT_PATH = File.expand_path('../../data/transactions.db', __dir__)
+    MIGRATIONS = %i[create_base_schema migrate_amount_to_cents create_reversals].freeze
 
     def initialize(db_path = ENV.fetch('BOTON_DB', DEFAULT_PATH))
       @db = SQLite3::Database.new(db_path)
       @db.results_as_hash = true
-      setup_schema
+      migrate
+      @db.execute('PRAGMA foreign_keys = ON')
     end
 
     attr_reader :db
@@ -24,11 +26,11 @@ module Boton
     def insert_transaction(transaction)
       @db.execute(
         <<~SQL,
-          INSERT INTO transactions (amount, merchant, transaction_date, transaction_time, email_id, summary_id)
+          INSERT INTO transactions (amount_cents, merchant, transaction_date, transaction_time, email_id, summary_id)
           VALUES (?, ?, ?, ?, ?, ?)
         SQL
         [
-          transaction.amount,
+          transaction.amount_cents,
           transaction.merchant,
           transaction.transaction_date,
           transaction.transaction_time,
@@ -98,15 +100,34 @@ module Boton
     # Cerrar un resumen (asignar periodo_fin)
     # @param summary_id [Integer] id del resumen
     # @param periodo_fin [String] fecha de cierre en formato 'YYYY-MM-DD'
-    # @return [Boolean] true si se cerró, false si falló
     def close_summary(summary_id, periodo_fin)
       @db.execute(
         'UPDATE resumenes SET periodo_fin = ? WHERE id = ?',
         [periodo_fin, summary_id]
       )
-      true
-    rescue StandardError
-      false
+    end
+
+    def open_summary(periodo_inicio)
+      @db.transaction do
+        previous = get_open_summary
+        close_summary(previous['id'], periodo_inicio) if previous
+        id = create_summary(periodo_inicio)
+        moved = previous ? move_transactions(previous['id'], id, periodo_inicio) : 0
+        { id: id, closed: previous, moved: moved }
+      end
+    end
+
+    def overlapping_summary(periodo_inicio)
+      @db.execute(
+        <<~SQL,
+          SELECT id, periodo_inicio, periodo_fin
+          FROM resumenes
+          WHERE periodo_inicio >= ? OR periodo_fin > ?
+          ORDER BY periodo_inicio
+          LIMIT 1
+        SQL
+        [periodo_inicio, periodo_inicio]
+      ).first
     end
 
     # Buscar resumen por fecha de transacción
@@ -123,6 +144,7 @@ module Boton
             created_at
           FROM resumenes
           WHERE periodo_inicio <= ? AND (periodo_fin IS NULL OR ? < periodo_fin)
+          ORDER BY periodo_inicio DESC
           LIMIT 1
         SQL
         [transaction_date, transaction_date]
@@ -149,7 +171,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -171,7 +193,7 @@ module Boton
       sql = <<~SQL
         SELECT
           id,
-          amount,
+          amount_cents,
           merchant,
           transaction_date,
           transaction_time,
@@ -194,7 +216,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -202,10 +224,10 @@ module Boton
             summary_id,
             created_at
           FROM transactions
-          WHERE LOWER(merchant) LIKE '%' || LOWER(?) || '%' AND reversed_at IS NULL
+          WHERE LOWER(merchant) LIKE LOWER(?) ESCAPE '\\' AND reversed_at IS NULL
           ORDER BY transaction_date DESC, transaction_time DESC
         SQL
-        search_term
+        like_pattern(search_term)
       )
     end
 
@@ -217,7 +239,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -241,7 +263,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -266,7 +288,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -290,7 +312,7 @@ module Boton
         <<~SQL,
           SELECT#{' '}
             id,
-            amount,
+            amount_cents,
             merchant,
             transaction_date,
             transaction_time,
@@ -298,67 +320,78 @@ module Boton
             summary_id,
             created_at
           FROM transactions
-          WHERE summary_id = ? AND LOWER(merchant) LIKE '%' || LOWER(?) || '%' AND reversed_at IS NULL
+          WHERE summary_id = ? AND LOWER(merchant) LIKE LOWER(?) ESCAPE '\\' AND reversed_at IS NULL
           ORDER BY transaction_date DESC, transaction_time DESC
         SQL
-        [summary_id, search_term]
+        [summary_id, like_pattern(search_term)]
       )
     end
 
-    # Verificar si un reverso ya fue procesado (idempotencia)
-    # @param email_id [String] Message-ID del email de reverso
-    # @return [Boolean] true si ya se marcó una transacción con este reverso
-    def reversal_processed?(email_id)
-      result = @db.execute(
-        'SELECT COUNT(*) as count FROM transactions WHERE reversed_by_email_id = ?',
-        email_id
-      )
-      result.first['count'].positive?
-    end
-
-    # Buscar transacción original no reversada, por comercio y monto exactos
-    # @param merchant [String] nombre del comercio (normalizado)
-    # @param amount [Float] monto de la transacción
-    # @param before_date [String] fecha del reverso en formato 'YYYY-MM-DD'
-    # @return [Hash, nil] transacción encontrada o nil
-    def find_unreversed_transaction_by_merchant_and_amount(merchant, amount, before_date:)
-      result = @db.execute(
-        <<~SQL,
-          SELECT#{' '}
-            id,
-            amount,
-            merchant,
-            transaction_date,
-            transaction_time,
-            email_id,
-            summary_id,
-            created_at
-          FROM transactions
-          WHERE merchant = ? AND amount = ? AND transaction_date <= ? AND reversed_at IS NULL
-          ORDER BY transaction_date DESC, transaction_time DESC
-          LIMIT 1
-        SQL
-        [merchant, amount, before_date]
-      )
-      result.first
-    end
-
-    # Marcar una transacción como reversada
-    # @param transaction_id [Integer] id de la transacción original
-    # @param reversal_email_id [String] Message-ID del email de reverso
-    # @param reversal_date [String] fecha del reverso en formato 'YYYY-MM-DD'
-    # @return [Boolean] true
-    def mark_transaction_reversed(transaction_id, reversal_email_id, reversal_date)
+    def insert_reversal(reversal)
       @db.execute(
-        'UPDATE transactions SET reversed_at = ?, reversed_by_email_id = ? WHERE id = ?',
-        [reversal_date, reversal_email_id, transaction_id]
+        <<~SQL,
+          INSERT INTO reversals (email_id, merchant, amount_cents, reversal_date)
+          VALUES (?, ?, ?, ?)
+        SQL
+        [reversal.email_id, reversal.merchant, reversal.amount_cents, reversal.transaction_date]
       )
       true
+    rescue SQLite3::ConstraintException
+      false
+    end
+
+    def reversal_known?(email_id)
+      @db.get_first_value('SELECT COUNT(*) FROM reversals WHERE email_id = ?', email_id).positive?
+    end
+
+    def pending_reversals
+      @db.execute(
+        <<~SQL
+          SELECT id, email_id, merchant, amount_cents, reversal_date
+          FROM reversals
+          WHERE transaction_id IS NULL
+          ORDER BY reversal_date
+        SQL
+      )
+    end
+
+    def unreversed_candidates(merchant, amount_cents, before_date)
+      @db.execute(
+        <<~SQL,
+          SELECT id, amount_cents, merchant, transaction_date, transaction_time, email_id, summary_id
+          FROM transactions
+          WHERE merchant = ? AND amount_cents = ? AND transaction_date <= ? AND reversed_at IS NULL
+          ORDER BY transaction_date DESC, transaction_time DESC
+        SQL
+        [merchant, amount_cents, before_date]
+      )
+    end
+
+    def apply_reversal(reversal, transaction_id)
+      @db.transaction do
+        @db.execute(
+          'UPDATE transactions SET reversed_at = ?, reversed_by_email_id = ? WHERE id = ?',
+          [reversal['reversal_date'], reversal['email_id'], transaction_id]
+        )
+        @db.execute('UPDATE reversals SET transaction_id = ? WHERE id = ?', [transaction_id, reversal['id']])
+      end
     end
 
     private
 
-    def setup_schema
+    def migrate
+      version = @db.get_first_value('PRAGMA user_version')
+      MIGRATIONS.each.with_index(1) do |migration, target|
+        next if target <= version
+
+        @db.transaction do
+          send(migration)
+          @db.execute("PRAGMA user_version = #{target}")
+        end
+      end
+    end
+
+    def create_base_schema
       @db.execute(
         <<~SQL
           CREATE TABLE IF NOT EXISTS resumenes (
@@ -392,6 +425,72 @@ module Boton
 
       add_column_if_missing('transactions', 'reversed_at', 'DATE')
       add_column_if_missing('transactions', 'reversed_by_email_id', 'TEXT')
+    end
+
+    def migrate_amount_to_cents
+      @db.execute_batch(
+        <<~SQL
+          CREATE TABLE transactions_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount_cents INTEGER NOT NULL,
+            merchant TEXT NOT NULL,
+            transaction_date DATE NOT NULL,
+            transaction_time TIME NOT NULL,
+            email_id TEXT UNIQUE NOT NULL,
+            summary_id INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reversed_at DATE,
+            reversed_by_email_id TEXT,
+            FOREIGN KEY (summary_id) REFERENCES resumenes(id)
+          );
+          INSERT INTO transactions_new (
+            id, amount_cents, merchant, transaction_date, transaction_time,
+            email_id, summary_id, created_at, reversed_at, reversed_by_email_id
+          )
+          SELECT
+            id, CAST(ROUND(amount * 100) AS INTEGER), merchant, transaction_date, transaction_time,
+            email_id, summary_id, created_at, reversed_at, reversed_by_email_id
+          FROM transactions;
+          DROP TABLE transactions;
+          ALTER TABLE transactions_new RENAME TO transactions;
+          CREATE INDEX idx_transaction_date ON transactions(transaction_date);
+          CREATE INDEX idx_summary_id ON transactions(summary_id);
+        SQL
+      )
+    end
+
+    def create_reversals
+      @db.execute_batch(
+        <<~SQL
+          CREATE TABLE reversals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id TEXT UNIQUE NOT NULL,
+            merchant TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            reversal_date DATE NOT NULL,
+            transaction_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+          );
+          CREATE INDEX idx_reversals_transaction_id ON reversals(transaction_id);
+          INSERT INTO reversals (email_id, merchant, amount_cents, reversal_date, transaction_id)
+          SELECT reversed_by_email_id, merchant, amount_cents, reversed_at, id
+          FROM transactions
+          WHERE reversed_by_email_id IS NOT NULL;
+        SQL
+      )
+    end
+
+    def move_transactions(from_summary_id, to_summary_id, since_date)
+      @db.execute(
+        'UPDATE transactions SET summary_id = ? WHERE summary_id = ? AND transaction_date >= ?',
+        [to_summary_id, from_summary_id, since_date]
+      )
+      @db.changes
+    end
+
+    def like_pattern(term)
+      "%#{term.gsub(/[\\%_]/) { |char| "\\#{char}" }}%"
     end
 
     def add_column_if_missing(table, column, type)
